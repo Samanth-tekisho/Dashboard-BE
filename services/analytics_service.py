@@ -10,17 +10,56 @@ from fastapi import HTTPException
 from db.supabase_client import supabase
 from models.dashboard_model import (
     DashboardSummary, FunnelBreakdown, IndustryStat, DailyScanStat,
-    SearchResult, Contact, Meeting, Email, UpcomingMeeting, MeetingMoMCreate
+    SearchResult, Contact, Meeting, Email, UpcomingMeeting, MeetingMoMCreate,
+    DateRangePreset, DateRangeResponse, CompletedMeeting, EmailDetail
 )
 
 UTC = timezone.utc
 
+from datetime import timedelta
+
+def resolve_date_range_preset(preset: DateRangePreset, custom_start: Optional[str] = None, custom_end: Optional[str] = None) -> tuple[str, str]:
+    today = datetime.now(UTC).date()
+    
+    if preset == DateRangePreset.CUSTOM:
+        if not custom_start or not custom_end:
+             # Fallback to THIS_MONTH if custom dates not provided
+             start = today.replace(day=1)
+             return start.isoformat(), today.isoformat()
+        return custom_start, custom_end
+
+    if preset == DateRangePreset.TODAY:
+        start = today
+    
+    elif preset == DateRangePreset.THIS_WEEK:
+         # Monday start
+        start = today - timedelta(days=today.weekday())
+        
+    elif preset == DateRangePreset.THIS_MONTH:
+        start = today.replace(day=1)
+        
+    elif preset == DateRangePreset.THIS_QUARTER:
+        month = (today.month - 1) // 3 * 3 + 1
+        start = today.replace(month=month, day=1)
+        
+    elif preset == DateRangePreset.THIS_YEAR:
+        start = today.replace(month=1, day=1)
+        
+    else:
+        # Default fallback
+        start = today.replace(day=1)
+
+    # For all presets (except Custom), end date is today (inclusive) or end of period?
+    # Usually "This X" implies "Up to now" or "Whole X". 
+    # Based on contexts like "funnel view", "up to now" is safer for "This ..."
+    # Check if user wants "Past X" or "Current X". "This Month" usually means 1st to Today.
+    return start.isoformat(), today.isoformat()
+
 def date_range(start: Optional[str], end: Optional[str]):
+    # Maintain backward compatibility
     if start and end:
         return start, end
-    today = date.today()
-    start = today.replace(day=1)
-    return start.isoformat(), today.isoformat()
+    return resolve_date_range_preset(DateRangePreset.THIS_MONTH)
 
 def search_global(query: str, user_id: uuid.UUID) -> SearchResult:
     try:
@@ -331,12 +370,86 @@ def analyze_and_save_mom(mom_data: MeetingMoMCreate, user_id: uuid.UUID):
         new_status = "WARM"
 
     # 6. Update contacts table
-    supabase.table("contacts").update({
-        "last_outcome_status": new_status
-    }).eq("contact_id", contact_id).execute()
+    # "COLD" might not be in the contact_outcome_status enum, so we filter it for the enum column
+    # but still save it to the text outcome column.
+    valid_enum_statuses = {"HOT", "WARM", "LOST", "WON"}
+    
+    update_payload = {
+        "outcome": new_status
+    }
+    
+    if new_status in valid_enum_statuses:
+        update_payload["last_outcome_status"] = new_status
+        
+    supabase.table("contacts").update(update_payload).eq("contact_id", contact_id).execute()
 
     return {
         "analysis": analysis,
         "average_score": avg_score,
         "new_contact_status": new_status
     }
+
+def get_date_range_for_preset(preset: DateRangePreset, custom_start: Optional[str] = None, custom_end: Optional[str] = None) -> DateRangeResponse:
+    start, end = resolve_date_range_preset(preset, custom_start, custom_end)
+    return DateRangeResponse(
+        start_date=start,
+        end_date=end,
+        preset=preset
+    )
+
+def get_completed_meetings(user_id: uuid.UUID, limit: int = 20) -> List[CompletedMeeting]:
+    try:
+        # Fetch completed meetings joined with contacts to get name
+        response = supabase.table("meetings") \
+            .select("*, contacts(first_name, last_name, company_name)") \
+            .eq("user_id", str(user_id)) \
+            .eq("status", "COMPLETED") \
+            .order("scheduled_at", desc=True) \
+            .limit(limit) \
+            .execute()
+        
+        meetings = []
+        for m in response.data:
+            contact = m.get('contacts')
+            contact_name = "Unknown"
+            company_name = None
+            if contact:
+                contact_name = f"{contact.get('first_name', '')} {contact.get('last_name', '')}".strip()
+                company_name = contact.get('company_name')
+
+            meetings.append(CompletedMeeting(
+                meeting_id=uuid.UUID(m['meeting_id']),
+                contact_name=contact_name,
+                company_name=company_name,
+                scheduled_at=m.get('scheduled_at'),
+                status=m.get('status'),
+                mom_exists=m.get('mom_exists')
+            ))
+        return meetings
+    except Exception as e:
+        print(f"Error fetching completed meetings: {e}")
+        return []
+
+def get_drafted_emails(user_id: uuid.UUID, limit: int = 20) -> List[EmailDetail]:
+    try:
+        # Fetch recent emails
+        response = supabase.table("emails") \
+            .select("*") \
+            .eq("user_id", str(user_id)) \
+            .order("drafted_at", desc=True) \
+            .limit(limit) \
+            .execute()
+            
+        emails = []
+        for e in response.data:
+            emails.append(EmailDetail(
+                email_id=uuid.UUID(e['email_id']),
+                status=e.get('status'),
+                drafted_at=e.get('drafted_at'),
+                subject=e.get('subject', 'No Subject'), 
+                recipient=e.get('recipient_email', 'Unknown') 
+            ))
+        return emails
+    except Exception as e:
+        print(f"Error fetching drafted emails: {e}")
+        return []

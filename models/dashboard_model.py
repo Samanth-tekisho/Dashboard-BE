@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime
 from typing import Optional, List
+from enum import Enum
 from pydantic import BaseModel, Field
 
 class FunnelBreakdown(BaseModel):
@@ -18,9 +19,11 @@ class Contact(BaseModel):
     company_name: Optional[str] = None
     email: Optional[str] = None
     last_activity_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
     next_follow_up_due_at: Optional[datetime] = None
     next_follow_up_type: Optional[str] = None
     last_outcome_status: Optional[str] = None
+    outcome: Optional[str] = None
 
 class Meeting(BaseModel):
     meeting_id: uuid.UUID
@@ -30,11 +33,26 @@ class Meeting(BaseModel):
     mom_exists: Optional[bool] = None
     duration_seconds: Optional[int] = None
 
+class CompletedMeeting(BaseModel):
+    meeting_id: uuid.UUID
+    contact_name: Optional[str] = None
+    company_name: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    status: Optional[str] = None
+    mom_exists: Optional[bool] = None
+
 class Email(BaseModel):
     email_id: uuid.UUID
     status: Optional[str] = None
     drafted_at: Optional[datetime] = None
     prompt_version: Optional[str] = None
+
+class EmailDetail(BaseModel):
+    email_id: uuid.UUID
+    status: Optional[str] = None
+    drafted_at: Optional[datetime] = None
+    subject: Optional[str] = None # Assuming subject exists or we construct it
+    recipient: Optional[str] = None # email address
 
 class SearchResult(BaseModel):
     contacts: List[Contact]
@@ -76,3 +94,16 @@ class TeamUserSummary(BaseModel):
 class MeetingMoMCreate(BaseModel):
     meeting_id: uuid.UUID
     mom_text: str = Field(..., min_length=10, description="Summary of the meeting conversation")
+
+class DateRangePreset(str, Enum):
+    TODAY = "TODAY"
+    THIS_WEEK = "THIS_WEEK"
+    THIS_MONTH = "THIS_MONTH"
+    THIS_QUARTER = "THIS_QUARTER"
+    THIS_YEAR = "THIS_YEAR"
+    CUSTOM = "CUSTOM"
+
+class DateRangeResponse(BaseModel):
+    start_date: str
+    end_date: str
+    preset: DateRangePreset
