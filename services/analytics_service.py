@@ -178,9 +178,9 @@ def get_upcoming_meetings(user_id: uuid.UUID, limit: int = 5) -> List[UpcomingMe
 def get_dashboard_summary(user_id: uuid.UUID, start_date: Optional[str], end_date: Optional[str]) -> DashboardSummary:
     start, end = date_range(start_date, end_date)
 
-    # Contacts owned by user
+    # Contacts owned by user (Global for Leads calculation)
     contacts = supabase.table("contacts") \
-        .select("contact_id, last_outcome_status", count="exact") \
+        .select("contact_id, last_outcome_status, outcome, created_at", count="exact") \
         .eq("user_id", str(user_id)) \
         .execute()
 
@@ -221,7 +221,47 @@ def get_dashboard_summary(user_id: uuid.UUID, start_date: Optional[str], end_dat
     drafted_emails = [e for e in emails.data if e["status"] == "DRAFTED"]
     sent_emails = [e for e in emails.data if e["status"] == "SENT"]
 
-    positive_contacts = [c for c in contacts.data if c.get("last_outcome_status") in ("HOT", "WON")]
+    # Conversion Rate Calculations
+    total_leads = len(contacts.data)
+    
+    # Normalize outcomes to lowercase for comparison
+    def get_outcome(c):
+        o = c.get("outcome") or c.get("last_outcome_status") or ""
+        return o.lower()
+
+    qualified_leads = len([c for c in contacts.data if get_outcome(c) in ("warm", "hot")])
+    converted_leads = len([c for c in contacts.data if get_outcome(c) == "hot"])
+
+    conversion_rate = (converted_leads / total_leads * 100) if total_leads > 0 else 0
+
+    # MoM Calculation (Cohort based: Leads created before this month)
+    # Using 30 days as approximation for "Last Month" comparison vs "Now"
+    cutoff_date = datetime.now(UTC) - timedelta(days=30)
+    
+    prev_contacts = []
+    for c in contacts.data:
+        created_at_str = c.get("created_at")
+        if not created_at_str:
+            continue
+            
+        try:
+            # Handle both Z and standard ISO formats
+            dt = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+            
+            # Ensure it is timezone-aware to match cutoff_date (UTC)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+                
+            if dt < cutoff_date:
+                prev_contacts.append(c)
+        except (ValueError, TypeError):
+             continue
+
+    prev_total = len(prev_contacts)
+    prev_converted = len([c for c in prev_contacts if get_outcome(c) == "hot"])
+    
+    prev_rate = (prev_converted / prev_total * 100) if prev_total > 0 else 0
+    mom_change = round(conversion_rate - prev_rate)
 
     return DashboardSummary(
         contacts_touched=len(set(contact_ids)),
@@ -230,13 +270,21 @@ def get_dashboard_summary(user_id: uuid.UUID, start_date: Optional[str], end_dat
         overdue_followups_count=len(followups.data),
         cancelled_count=len([m for m in meetings.data if m["status"] == "CANCELLED"]),
         no_show_count=len([m for m in meetings.data if m["status"] == "NO_SHOW"]),
+        
+        conversion_rate=round(conversion_rate),
+        conversion_rate_change=mom_change,
+        total_leads=total_leads,
+        qualified_leads=qualified_leads,
+        converted_leads=converted_leads,
+        
         funnel_breakdown=FunnelBreakdown(
-            contacts_captured=contacts.count,
+            contacts_captured=total_leads,
             meetings_scheduled=len(meetings.data),
             meetings_completed=len(completed),
             emails_drafted=len(drafted_emails),
             emails_sent=len(sent_emails),
-            positive_outcomes=len(positive_contacts),
+            qualified_contacts=qualified_leads,
+            positive_outcomes=converted_leads,
         )
     )
 
@@ -423,7 +471,8 @@ def get_completed_meetings(user_id: uuid.UUID, limit: int = 20) -> List[Complete
                 company_name=company_name,
                 scheduled_at=m.get('scheduled_at'),
                 status=m.get('status'),
-                mom_exists=m.get('mom_exists')
+                mom_exists=m.get('mom_exists'),
+                mom_text=m.get('mom_text')
             ))
         return meetings
     except Exception as e:
@@ -450,6 +499,19 @@ def get_drafted_emails(user_id: uuid.UUID, limit: int = 20) -> List[EmailDetail]
                 recipient=e.get('recipient_email', 'Unknown') 
             ))
         return emails
+        return emails
     except Exception as e:
         print(f"Error fetching drafted emails: {e}")
+        return []
+
+def get_contacts_list(user_id: uuid.UUID) -> List[Contact]:
+    try:
+        response = supabase.table("contacts") \
+            .select("*") \
+            .eq("user_id", str(user_id)) \
+            .order("created_at", desc=True) \
+            .execute()
+        return [Contact(**c) for c in response.data]
+    except Exception as e:
+        print(f"Error fetching contacts: {e}")
         return []

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query, HTTPException
 from models.dashboard_model import (
     DashboardSummary, IndustryStat, DailyScanStat,
     SearchResult, FunnelBreakdown, UpcomingMeeting, MeetingMoMCreate,
-    DateRangeResponse, DateRangePreset, CompletedMeeting, EmailDetail
+    DateRangeResponse, DateRangePreset, CompletedMeeting, EmailDetail, Contact
 )
 from services import analytics_service
 
@@ -86,3 +86,7 @@ def drafted_emails(
     limit: int = Query(20, ge=1, le=100),
 ):
     return analytics_service.get_drafted_emails(user_id, limit)
+
+@router.get("/api/v1/contacts", response_model=List[Contact])
+def get_contacts(user_id: uuid.UUID):
+    return analytics_service.get_contacts_list(user_id)
