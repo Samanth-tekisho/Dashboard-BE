@@ -1,9 +1,10 @@
+ 
 import uuid
 from datetime import date, datetime
 from typing import Optional, List
 from enum import Enum
 from pydantic import BaseModel, Field
-
+ 
 class FunnelBreakdown(BaseModel):
     contacts_captured: int
     meetings_scheduled: int
@@ -11,7 +12,17 @@ class FunnelBreakdown(BaseModel):
     emails_drafted: int
     emails_sent: int
     positive_outcomes: int
-
+ 
+class ConversionRateResponse(BaseModel):
+    total_leads: int
+    qualified_leads: int
+    converted_leads: int
+    leads_percentage: float
+    qualified_percentage: float
+    converted_percentage: float
+    current_rate: float
+    rate_change: float
+ 
 class Contact(BaseModel):
     contact_id: uuid.UUID
     first_name: Optional[str] = None
@@ -24,7 +35,7 @@ class Contact(BaseModel):
     next_follow_up_type: Optional[str] = None
     last_outcome_status: Optional[str] = None
     outcome: Optional[str] = None
-
+ 
 class Meeting(BaseModel):
     meeting_id: uuid.UUID
     contact_id: Optional[uuid.UUID] = None
@@ -32,7 +43,7 @@ class Meeting(BaseModel):
     status: Optional[str] = None
     mom_exists: Optional[bool] = None
     duration_seconds: Optional[int] = None
-
+ 
 class CompletedMeeting(BaseModel):
     meeting_id: uuid.UUID
     contact_name: Optional[str] = None
@@ -40,32 +51,32 @@ class CompletedMeeting(BaseModel):
     scheduled_at: Optional[datetime] = None
     status: Optional[str] = None
     mom_exists: Optional[bool] = None
-
+ 
 class Email(BaseModel):
     email_id: uuid.UUID
     status: Optional[str] = None
     drafted_at: Optional[datetime] = None
     prompt_version: Optional[str] = None
-
+ 
 class EmailDetail(BaseModel):
     email_id: uuid.UUID
     status: Optional[str] = None
     drafted_at: Optional[datetime] = None
     subject: Optional[str] = None # Assuming subject exists or we construct it
     recipient: Optional[str] = None # email address
-
+ 
 class SearchResult(BaseModel):
     contacts: List[Contact]
     meetings: List[Meeting]
     emails: List[Email]
-
+ 
 class UpcomingMeeting(BaseModel):
     meeting_id: uuid.UUID
     contact_name: Optional[str] = None
     scheduled_at: Optional[datetime] = None
     status: Optional[str] = None
     mom_exists: Optional[bool] = None
-
+ 
 class DashboardSummary(BaseModel):
     contacts_touched: int
     emails_drafted: int
@@ -73,16 +84,21 @@ class DashboardSummary(BaseModel):
     overdue_followups_count: int
     cancelled_count: int
     no_show_count: int
+    conversion_rate: float
+    conversion_rate_change: float
+    total_leads: int
+    qualified_leads: int
+    converted_leads: int
     funnel_breakdown: FunnelBreakdown
-
+ 
 class IndustryStat(BaseModel):
     industry: Optional[str]
     count: int
-
+ 
 class DailyScanStat(BaseModel):
     date: date
     count: int
-
+ 
 class TeamUserSummary(BaseModel):
     user_id: uuid.UUID
     full_name: Optional[str]
@@ -90,11 +106,11 @@ class TeamUserSummary(BaseModel):
     contacts_captured: int
     meetings_completed: int
     overdue_followups: int
-
+ 
 class MeetingMoMCreate(BaseModel):
     meeting_id: uuid.UUID
     mom_text: str = Field(..., min_length=10, description="Summary of the meeting conversation")
-
+ 
 class DateRangePreset(str, Enum):
     TODAY = "TODAY"
     THIS_WEEK = "THIS_WEEK"
@@ -102,8 +118,23 @@ class DateRangePreset(str, Enum):
     THIS_QUARTER = "THIS_QUARTER"
     THIS_YEAR = "THIS_YEAR"
     CUSTOM = "CUSTOM"
-
+ 
 class DateRangeResponse(BaseModel):
     start_date: str
     end_date: str
     preset: DateRangePreset
+
+class MeetingSummary(BaseModel):
+    meeting_id: uuid.UUID
+    scheduled_at: Optional[datetime] = None
+    status: Optional[str] = None
+    summary: Optional[str] = None  # mom_text from meetings table
+
+class LeadResponse(BaseModel):
+    contact_id: uuid.UUID
+    name: Optional[str] = None  # Combined first_name + last_name or company_name
+    contact: Optional[str] = None  # email
+    status: Optional[str] = None  # last_outcome_status (HOT, WARM, COLD, etc.)
+    last_contact: Optional[datetime] = None  # Most recent meeting scheduled_at
+    conversion_rate: float = 0.0  # Percentage based on meetings completed vs total
+    meetings: List[MeetingSummary] = []  # List of past meetings with summaries
