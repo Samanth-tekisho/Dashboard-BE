@@ -12,12 +12,36 @@ class FunnelBreakdown(BaseModel):
     emails_sent: int
     positive_outcomes: int
 
+class ConversionRateResponse(BaseModel):
+    total_leads: int
+    qualified_leads: int
+    converted_leads: int
+    leads_percentage: float
+    qualified_percentage: float
+    converted_percentage: float
+    current_rate: float
+    rate_change: float
+
+class ContactEmail(BaseModel):
+    email: str
+    type: Optional[str] = None
+    is_primary: bool = False
+
+class ContactPhone(BaseModel):
+    phone_number: str
+    type: Optional[str] = None
+    is_primary: bool = False
+
 class Contact(BaseModel):
     contact_id: uuid.UUID
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     company_name: Optional[str] = None
-    email: Optional[str] = None
+    designation: Optional[str] = None # job_title
+    email: Optional[str] = None # Primary email
+    phone: Optional[str] = None # Primary phone
+    emails: List[ContactEmail] = []
+    phones: List[ContactPhone] = []
     last_activity_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     next_follow_up_due_at: Optional[datetime] = None
@@ -40,6 +64,7 @@ class CompletedMeeting(BaseModel):
     scheduled_at: Optional[datetime] = None
     status: Optional[str] = None
     mom_exists: Optional[bool] = None
+    mom_text: Optional[str] = None
 
 class Email(BaseModel):
     email_id: uuid.UUID
@@ -71,9 +96,16 @@ class DashboardSummary(BaseModel):
     emails_drafted: int
     mom_coverage_percent: float
     overdue_followups_count: int
+    upcoming_meetings_count: int
     cancelled_count: int
     no_show_count: int
+    conversion_rate: float
+    conversion_rate_change: float
+    total_leads: int
+    qualified_leads: int
+    converted_leads: int
     funnel_breakdown: FunnelBreakdown
+    user_full_name: Optional[str] = None
 
 class IndustryStat(BaseModel):
     industry: Optional[str]

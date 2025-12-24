@@ -5,11 +5,16 @@ from fastapi import APIRouter, Query, HTTPException
 from models.dashboard_model import (
     DashboardSummary, IndustryStat, DailyScanStat,
     SearchResult, FunnelBreakdown, UpcomingMeeting, MeetingMoMCreate,
-    DateRangeResponse, DateRangePreset, CompletedMeeting, EmailDetail
+    DateRangeResponse, DateRangePreset, CompletedMeeting, EmailDetail,
+    ConversionRateResponse, Contact
 )
 from services import analytics_service
 
 router = APIRouter()
+
+@router.get("/api/v1/contacts", response_model=List[Contact])
+def get_contacts(user_id: uuid.UUID):
+    return analytics_service.get_all_contacts(user_id)
 
 @router.get("/api/v1/search", response_model=SearchResult)
 def search(
@@ -86,3 +91,13 @@ def drafted_emails(
     limit: int = Query(20, ge=1, le=100),
 ):
     return analytics_service.get_drafted_emails(user_id, limit)
+
+@router.get("/api/v1/analytics/conversion-rates", response_model=ConversionRateResponse)
+def conversion_rates(
+    user_id: uuid.UUID,
+    preset: DateRangePreset = Query(DateRangePreset.THIS_MONTH),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
+    start, end = analytics_service.resolve_date_range_preset(preset, start_date, end_date)
+    return analytics_service.get_conversion_rates(user_id, start, end)
